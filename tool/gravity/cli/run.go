@@ -864,6 +864,9 @@ func Execute(g *Application, cmd string, extraArgs []string) error {
 			*g.CheckCmd.ManifestFile,
 			*g.CheckCmd.Profile,
 			*g.CheckCmd.AutoFix)
+	case g.TopCmd.FullCommand():
+		return top(localEnv,
+			*g.TopCmd.Interval)
 	}
 	return trace.NotFound("unknown command %v", cmd)
 }

@@ -311,6 +311,8 @@ type Application struct {
 	ResourceRemoveCmd ResourceRemoveCmd
 	// ResourceGetCmd shows specified resource
 	ResourceGetCmd ResourceGetCmd
+	//
+	TopCmd TopCmd
 }
 
 // VersionCmd displays the binary version
@@ -1650,4 +1652,11 @@ type ResourceGetCmd struct {
 	WithSecrets *bool
 	// User is resource owner
 	User *string
+}
+
+//
+type TopCmd struct {
+	*kingpin.CmdClause
+	//
+	Interval *time.Duration
 }

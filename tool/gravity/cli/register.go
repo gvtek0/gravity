@@ -730,6 +730,9 @@ func RegisterCommands(app *kingpin.Application) *Application {
 	g.ResourceGetCmd.WithSecrets = g.ResourceGetCmd.Flag("with-secrets", "include secret properties like private keys").Default("false").Bool()
 	g.ResourceGetCmd.User = g.ResourceGetCmd.Flag("user", "user to display resources for, defaults to currently logged in user").String()
 
+	g.TopCmd.CmdClause = g.Command("top", "Gravity top")
+	g.TopCmd.Interval = g.TopCmd.Flag("interval", "Interval").Default("1h").Duration()
+
 	return g
 }
 
