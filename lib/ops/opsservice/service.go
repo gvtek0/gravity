@@ -368,6 +368,8 @@ func (o *Operator) DeleteAPIKey(userEmail, token string) error {
 	return trace.Wrap(o.cfg.Users.DeleteAPIKey(userEmail, token))
 }
 
+// CreateInstallToken creates a new install token for the specified request.
+// If the token already exists, it returns an existing token
 func (o *Operator) CreateInstallToken(req ops.NewInstallTokenRequest) (*storage.InstallToken, error) {
 	if err := req.Check(); err != nil {
 		return nil, trace.Wrap(err)
@@ -389,6 +391,15 @@ func (o *Operator) CreateInstallToken(req ops.NewInstallTokenRequest) (*storage.
 			Token:       req.Token,
 		},
 	)
+	if err != nil && !trace.IsAlreadyExists(err) {
+		return nil, trace.Wrap(err)
+	}
+	if token == nil {
+		token, err = o.cfg.Users.GetInstallToken(req.Token)
+		if err != nil {
+			return nil, trace.Wrap(err)
+		}
+	}
 	return token, trace.Wrap(err)
 }
 
