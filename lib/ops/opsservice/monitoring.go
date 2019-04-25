@@ -17,6 +17,9 @@ limitations under the License.
 package opsservice
 
 import (
+	"context"
+	"time"
+
 	"github.com/gravitational/gravity/lib/constants"
 	"github.com/gravitational/gravity/lib/defaults"
 	"github.com/gravitational/gravity/lib/ops"
@@ -25,11 +28,65 @@ import (
 
 	"github.com/gravitational/rigging"
 	"github.com/gravitational/trace"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubelabels "k8s.io/apimachinery/pkg/labels"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 )
+
+// GetClusterMetrics returns basic CPU/RAM metrics for the specified cluster.
+func (o *Operator) GetClusterMetrics(ctx context.Context, req ops.ClusterMetricsRequest) (*ops.ClusterMetricsResponse, error) {
+	err := req.CheckAndSetDefaults()
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	totalCPUCores, err := o.cfg.Metrics.GetTotalCPU(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	currentCPURate, err := o.cfg.Metrics.GetCurrentCPURate(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	maxCPURate, err := o.cfg.Metrics.GetMaxCPURate(ctx, req.Interval)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	historicCPURate, err := o.cfg.Metrics.GetCPURate(ctx, time.Now().Add(-req.Interval), time.Now(), 15*time.Second)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	totalRAMBytes, err := o.cfg.Metrics.GetTotalMemory(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	currentRAMRate, err := o.cfg.Metrics.GetCurrentMemoryRate(ctx)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	maxRAMRate, err := o.cfg.Metrics.GetMaxMemoryRate(ctx, req.Interval)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	historicRAMRate, err := o.cfg.Metrics.GetMemoryRate(ctx, time.Now().Add(-req.Interval), time.Now(), 15*time.Second)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	return &ops.ClusterMetricsResponse{
+		TotalCPUCores:    totalCPUCores,
+		TotalMemoryBytes: totalRAMBytes,
+		CPURates: ops.ClusterMetricsRates{
+			Current:  currentCPURate,
+			Max:      maxCPURate,
+			Historic: historicCPURate,
+		},
+		MemoryRates: ops.ClusterMetricsRates{
+			Current:  currentRAMRate,
+			Max:      maxRAMRate,
+			Historic: historicRAMRate,
+		},
+	}, nil
+}
 
 // GetRetentionPolicies returns a list of retention policies for the site
 func (o *Operator) GetRetentionPolicies(key ops.SiteKey) ([]monitoring.RetentionPolicy, error) {

@@ -537,6 +537,11 @@ const (
 	// InfluxDBAdminPassword is the InfluxDB admin user password
 	InfluxDBAdminPassword = "root"
 
+	// PrometheusServiceAddr is the Prometheus HTTP API service address.
+	PrometheusServiceAddr = "prometheus-k8s.monitoring.svc.cluster.local"
+	// PrometheusServicePort is the Prometheus HTTP API service port.
+	PrometheusServicePort = 9090
+
 	// WriteFactor is a default amount of acknowledged writes for object storage
 	// to be considered successfull
 	WriteFactor = 1

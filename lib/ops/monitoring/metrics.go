@@ -17,13 +17,17 @@ limitations under the License.
 package monitoring
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"text/template"
 	"time"
 
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 
+	"github.com/gravitational/gravity/lib/defaults"
 	"github.com/gravitational/trace"
 )
 
@@ -42,9 +46,9 @@ type Metrics interface {
 	// GetCurrentMemoryRate returns instantaneous RAM usage rate.
 	GetCurrentMemoryRate(context.Context) (int, error)
 	// GetMaxCPURate returns highest CPU usage rate on the specified interval.
-	GetMaxCPURate(ctx context.Context, start, end time.Time) (int, error)
+	GetMaxCPURate(ctx context.Context, interval time.Duration) (int, error)
 	// GetMaxMemoryRate returns highest RAM usage rate on the specified interval.
-	GetMaxMemoryRate(ctx context.Context, start, end time.Time) (int, error)
+	GetMaxMemoryRate(ctx context.Context, interval time.Duration) (int, error)
 }
 
 // Series represents a time series, collection of data points.
@@ -53,22 +57,29 @@ type Series []Point
 // Point represents a single data point in a time series.
 type Point struct {
 	// Time is the metric timestamp.
-	Time time.Time
+	Time time.Time `json:"time"`
 	// Value is the metric value.
-	Value int
+	Value int `json:"value"`
 }
 
 // prometheus retrieves cluster metrics by querying in-cluster Prometheus.
 //
 // Implements Metrics interface.
 type prometheus struct {
+	// API is Prometheus API client.
 	v1.API
+}
+
+// NewInClusterPrometheus returns in-cluster Prometheus client.
+func NewInClusterPrometheus() (*prometheus, error) {
+	return NewPrometheus(fmt.Sprintf("%v:%v", defaults.PrometheusServiceAddr,
+		defaults.PrometheusServicePort))
 }
 
 // NewPrometheus returns a new Prometheus-backed metrics collector.
 func NewPrometheus(address string) (*prometheus, error) {
 	client, err := api.NewClient(api.Config{
-		Address: address,
+		Address: fmt.Sprintf("http://%v", address),
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -80,41 +91,36 @@ func NewPrometheus(address string) (*prometheus, error) {
 
 // GetTotalCPU returns total number of CPU cores in the cluster.
 func (p *prometheus) GetTotalCPU(ctx context.Context) (int, error) {
-	value, err := p.Query(ctx, queryTotalCPU, time.Time{})
+	vector, err := p.getVector(ctx, queryTotalCPU)
 	if err != nil {
 		return 0, trace.Wrap(err)
 	}
-	if value.Type() != model.ValVector {
-		return 0, trace.BadParameter("expected vector: %v %v", value.Type(), value.String())
-	}
-	vector := value.(model.Vector)
 	if len(vector) != 1 {
-		return 0, trace.BadParameter("expected single-element vector: %v", value.String())
+		return 0, trace.BadParameter("expected single element: %v", vector)
 	}
 	return int(vector[0].Value), nil
 }
 
 // GetTotalMemory returns total amount of RAM in the cluster in bytes.
 func (p *prometheus) GetTotalMemory(ctx context.Context) (int64, error) {
-	return 0, nil
+	vector, err := p.getVector(ctx, queryTotalMemory)
+	if err != nil {
+		return 0, trace.Wrap(err)
+	}
+	if len(vector) != 1 {
+		return 0, trace.BadParameter("expected single element: %v", vector)
+	}
+	return int64(vector[0].Value), nil
 }
 
 // GetCPURate returns CPU usage rate for the specified interval.
 func (p *prometheus) GetCPURate(ctx context.Context, start, end time.Time, step time.Duration) (Series, error) {
-	value, err := p.QueryRange(ctx, queryCPURate, v1.Range{
-		Start: start,
-		End:   end,
-		Step:  step,
-	})
+	matrix, err := p.getMatrix(ctx, queryCPURate, start, end, step)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if value.Type() != model.ValMatrix {
-		return nil, trace.BadParameter("expected matrix: %v %v", value.Type(), value.String())
-	}
-	matrix := value.(model.Matrix)
 	if len(matrix) != 1 {
-		return nil, trace.BadParameter("expected single-element matrix: %v", value.String())
+		return nil, trace.BadParameter("expected single element: %v", matrix)
 	}
 	var result Series
 	for _, v := range matrix[0].Values {
@@ -123,26 +129,17 @@ func (p *prometheus) GetCPURate(ctx context.Context, start, end time.Time, step 
 			Time:  v.Timestamp.Time(),
 		})
 	}
-
 	return result, nil
 }
 
 // GetMemoryRate returns RAM usage rate for the specified interval.
 func (p *prometheus) GetMemoryRate(ctx context.Context, start, end time.Time, step time.Duration) (Series, error) {
-	value, err := p.QueryRange(ctx, queryMemoryRate, v1.Range{
-		Start: start,
-		End:   end,
-		Step:  step,
-	})
+	matrix, err := p.getMatrix(ctx, queryMemoryRate, start, end, step)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	if value.Type() != model.ValMatrix {
-		return nil, trace.BadParameter("expected matrix: %v %v", value.Type(), value.String())
-	}
-	matrix := value.(model.Matrix)
 	if len(matrix) != 1 {
-		return nil, trace.BadParameter("expected single-element matrix: %v", value.String())
+		return nil, trace.BadParameter("expected single element: %v", matrix)
 	}
 	var result Series
 	for _, v := range matrix[0].Values {
@@ -156,44 +153,84 @@ func (p *prometheus) GetMemoryRate(ctx context.Context, start, end time.Time, st
 
 // GetCurrentCPURate returns instantaneous CPU usage rate.
 func (p *prometheus) GetCurrentCPURate(ctx context.Context) (int, error) {
-	value, err := p.Query(ctx, queryCPURate, time.Time{})
+	vector, err := p.getVector(ctx, queryCPURate)
 	if err != nil {
 		return 0, trace.Wrap(err)
 	}
-	if value.Type() != model.ValVector {
-		return 0, trace.BadParameter("expected vector: %v", value.String())
-	}
-	vector := value.(model.Vector)
 	if len(vector) != 1 {
-		return 0, trace.BadParameter("expected single-element vector: %v", value.String())
+		return 0, trace.BadParameter("expected single element: %v", vector)
 	}
 	return int(vector[0].Value), nil
 }
 
 // GetCurrentMemoryRate returns instantaneous RAM usage rate.
 func (p *prometheus) GetCurrentMemoryRate(ctx context.Context) (int, error) {
-	value, err := p.Query(ctx, queryMemoryRate, time.Time{})
+	vector, err := p.getVector(ctx, queryMemoryRate)
 	if err != nil {
 		return 0, trace.Wrap(err)
 	}
-	if value.Type() != model.ValVector {
-		return 0, trace.BadParameter("expected vector: %v", value.String())
-	}
-	vector := value.(model.Vector)
 	if len(vector) != 1 {
-		return 0, trace.BadParameter("expected single-element vector: %v", value.String())
+		return 0, trace.BadParameter("expected single element: %v", vector)
 	}
 	return int(vector[0].Value), nil
 }
 
 // GetMaxCPURate returns highest CPU usage rate on the specified interval.
-func (p *prometheus) GetMaxCPURate(ctx context.Context, start, end time.Time) (int, error) {
-	return 0, nil
+func (p *prometheus) GetMaxCPURate(ctx context.Context, interval time.Duration) (int, error) {
+	var query bytes.Buffer
+	if err := queryMaxCPU.Execute(&query, map[string]string{"interval": fmt.Sprintf("%vh", interval.Hours())}); err != nil {
+		return 0, trace.Wrap(err)
+	}
+	vector, err := p.getVector(ctx, query.String())
+	if err != nil {
+		return 0, trace.Wrap(err)
+	}
+	if len(vector) != 1 {
+		return 0, trace.BadParameter("expected single element: %v", vector)
+	}
+	return int(vector[0].Value), nil
 }
 
 // GetMaxMemoryRate returns highest RAM usage rate on the specified interval.
-func (p *prometheus) GetMaxMemoryRate(ctx context.Context, start, end time.Time) (int, error) {
-	return 0, nil
+func (p *prometheus) GetMaxMemoryRate(ctx context.Context, interval time.Duration) (int, error) {
+	var query bytes.Buffer
+	if err := queryMaxMemory.Execute(&query, map[string]string{"interval": fmt.Sprintf("%vh", interval.Hours())}); err != nil {
+		return 0, trace.Wrap(err)
+	}
+	vector, err := p.getVector(ctx, query.String())
+	if err != nil {
+		return 0, trace.Wrap(err)
+	}
+	if len(vector) != 1 {
+		return 0, trace.BadParameter("expected single element: %v", vector)
+	}
+	return int(vector[0].Value), nil
+}
+
+func (p *prometheus) getVector(ctx context.Context, query string) (model.Vector, error) {
+	value, err := p.Query(ctx, query, time.Time{})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	if value.Type() != model.ValVector {
+		return nil, trace.BadParameter("expected vector: %v %v", value.Type(), value.String())
+	}
+	return value.(model.Vector), nil
+}
+
+func (p *prometheus) getMatrix(ctx context.Context, query string, start, end time.Time, step time.Duration) (model.Matrix, error) {
+	value, err := p.QueryRange(ctx, query, v1.Range{
+		Start: start,
+		End:   end,
+		Step:  step,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	if value.Type() != model.ValMatrix {
+		return nil, trace.BadParameter("expected matrix: %v %v", value.Type(), value.String())
+	}
+	return value.(model.Matrix), nil
 }
 
 var (
@@ -201,4 +238,6 @@ var (
 	queryTotalMemory = "cluster:memory_total_bytes"
 	queryCPURate     = "cluster:cpu_usage_rate"
 	queryMemoryRate  = "cluster:memory_usage_rate"
+	queryMaxCPU      = template.Must(template.New("").Parse("max_over_time(cluster:cpu_usage_rate[{{.interval}}])"))
+	queryMaxMemory   = template.Must(template.New("").Parse("max_over_time(cluster:memory_usage_rate[{{.interval}}])"))
 )
