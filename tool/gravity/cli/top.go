@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/gravitational/gravity/lib/constants"
 	"github.com/gravitational/gravity/lib/localenv"
 	"github.com/gravitational/gravity/lib/ops/monitoring"
 
 	"github.com/gizak/termui"
-	"github.com/gizak/termui/widgets"
 	"github.com/gravitational/trace"
 )
 
@@ -19,7 +19,7 @@ func top(env *localenv.LocalEnvironment, interval time.Duration) error {
 	// if err != nil {
 	// 	return trace.Wrap(err)
 	// }
-	prometheusAddr := "192.168.121.133:32634"
+	prometheusAddr := "192.168.121.97:30198"
 	prometheusClient, err := monitoring.NewPrometheus(prometheusAddr)
 	if err != nil {
 		return trace.Wrap(err)
@@ -29,45 +29,61 @@ func top(env *localenv.LocalEnvironment, interval time.Duration) error {
 		return trace.Wrap(err)
 	}
 	defer termui.Close()
-	uiEvents := termui.PollEvents()
 
-	for {
-		select {
-		case <-time.After(2 * time.Second):
-			currentCPU, maxCPU, cpuRate, currentRAM, maxRAM, ramRate, err := getData(context.TODO(), prometheusClient, interval)
-			if err != nil {
-				return trace.Wrap(err)
-			}
-			draw(currentCPU, maxCPU, cpuRate, currentRAM, maxRAM, ramRate)
-		case e := <-uiEvents:
-			switch e.ID {
-			case "q", "<C-c>":
-				return nil
+	// uiEvents := termui.PollEvents()
+
+	go func() {
+		for {
+			select {
+			case <-time.After(2 * time.Second):
+				totalCPU, currentCPU, maxCPU, cpuRate, totalRAM, currentRAM, maxRAM, ramRate, err := getData(context.TODO(), prometheusClient, interval)
+				if err != nil {
+					continue
+				}
+				draw(totalCPU, currentCPU, maxCPU, cpuRate, totalRAM, currentRAM, maxRAM, ramRate)
+				// case e := <-uiEvents:
+				// 	switch e.ID {
+				// 	case "q", "<C-c>":
+				// 		return nil
+				// 	}
 			}
 		}
-	}
+	}()
+
+	termui.Handle("/sys/kbd/q", func(termui.Event) {
+		termui.StopLoop()
+	})
+	termui.Loop()
 
 	return nil
 }
 
-func draw(currentCPU, maxCPU int, cpuRate monitoring.Series, currentRAM, maxRAM int, ramRate monitoring.Series) {
+// func draw2(currentCPU, maxCPU int, cpuRate monitoring.Series, currentRAM, maxRAM int, ramRate monitoring.Series) {
+// 	chart := goterm.NewLineChart()
+// }
+
+func draw(totalCPU, currentCPU, maxCPU int, cpuRate monitoring.Series, totalRAM int64, currentRAM, maxRAM int, ramRate monitoring.Series) {
 	var cpuData []float64
+	var cpuLabels []string
 	for _, point := range cpuRate {
 		cpuData = append(cpuData, float64(point.Value))
+		cpuLabels = append(cpuLabels, point.Time.Format("15:04"))
 	}
-	if len(cpuData) > 140 {
-		cpuData = cpuData[len(cpuData)-140:]
-	}
+	// if len(cpuData) > 140 {
+	// 	cpuData = cpuData[len(cpuData)-140:]
+	// }
 
 	var ramData []float64
+	var ramLabels []string
 	for _, point := range ramRate {
 		ramData = append(ramData, float64(point.Value))
+		ramLabels = append(ramLabels, point.Time.Format("15:04"))
 	}
-	if len(ramData) > 140 {
-		ramData = ramData[len(ramData)-140:]
-	}
+	// if len(ramData) > 140 {
+	// 	ramData = ramData[len(ramData)-140:]
+	// }
 
-	color := func(percent int) termui.Color {
+	color := func(percent int) termui.Attribute {
 		if percent <= 25 {
 			return termui.ColorGreen
 		} else if percent > 75 {
@@ -77,88 +93,111 @@ func draw(currentCPU, maxCPU int, cpuRate monitoring.Series, currentRAM, maxRAM 
 		}
 	}
 
-	title := widgets.NewParagraph()
-	title.Title = "Cluster Monitoring"
-	title.Text = fmt.Sprintf("Last Updated: %v",
+	title := termui.NewPar(fmt.Sprintf("Total Nodes: %v\nTotal CPU Cores: %v\nTotal Memory: %v",
+		1, totalCPU, humanize.Bytes(uint64(totalRAM))))
+	title.BorderLabel = fmt.Sprintf("Cluster Monitoring - Last Updated: %v",
 		time.Now().Format(constants.HumanDateFormatSeconds))
-	title.SetRect(0, 0, 182, 5)
+	title.Height = 5
+	title.Width = 135
 
-	cpuGauge := widgets.NewGauge()
-	cpuGauge.Title = "Current CPU"
+	cpuGauge := termui.NewGauge()
+	cpuGauge.BorderLabel = "Current CPU"
 	cpuGauge.Percent = currentCPU
 	cpuGauge.BarColor = color(currentCPU)
-	cpuGauge.SetRect(0, 5, 15, 25)
+	cpuGauge.Height = 10
+	cpuGauge.Width = 15
+	cpuGauge.X = 0
+	cpuGauge.Y = 5
 
-	maxCPUGauge := widgets.NewGauge()
-	maxCPUGauge.Title = "Peak CPU"
+	maxCPUGauge := termui.NewGauge()
+	maxCPUGauge.BorderLabel = "Peak CPU"
 	maxCPUGauge.Percent = maxCPU
 	maxCPUGauge.BarColor = color(maxCPU)
-	maxCPUGauge.SetRect(16, 5, 31, 25)
+	maxCPUGauge.Height = 10
+	maxCPUGauge.Width = 15
+	maxCPUGauge.X = 0
+	maxCPUGauge.Y = 15
 
-	cpuPlot := widgets.NewPlot()
-	cpuPlot.Title = fmt.Sprintf("CPU Usage")
-	cpuPlot.Data = [][]float64{cpuData}
-	cpuPlot.MaxVal = 100
-	cpuPlot.Marker = widgets.MarkerDot
-	cpuPlot.DotMarkerRune = '•'
-	cpuPlot.SetRect(32, 5, 182, 25)
-	//cpuPlot.SetRect(0, 0, 100, 20)
+	cpuPlot := termui.NewLineChart()
+	cpuPlot.BorderLabel = fmt.Sprintf("CPU Usage")
+	cpuPlot.Data = cpuData
+	cpuPlot.DataLabels = cpuLabels
+	cpuPlot.Mode = "dot"
+	cpuPlot.LineColor = termui.ColorRed
+	// cpuPlot.DotMarkerRune = '•'
+	cpuPlot.Height = 20
+	cpuPlot.Width = 120
+	cpuPlot.X = 15
+	cpuPlot.Y = 5
 
-	_ = termui.DOT
-
-	ramGauge := widgets.NewGauge()
-	ramGauge.Title = "Current RAM"
+	ramGauge := termui.NewGauge()
+	ramGauge.BorderLabel = "Current RAM"
 	ramGauge.Percent = currentRAM
 	ramGauge.BarColor = color(currentRAM)
-	ramGauge.SetRect(0, 25, 15, 45)
+	ramGauge.Height = 10
+	ramGauge.Width = 15
+	ramGauge.X = 0
+	ramGauge.Y = 25
 
-	maxRAMGauge := widgets.NewGauge()
-	maxRAMGauge.Title = "Peak RAM"
+	maxRAMGauge := termui.NewGauge()
+	maxRAMGauge.BorderLabel = "Peak RAM"
 	maxRAMGauge.Percent = maxRAM
 	maxRAMGauge.BarColor = color(maxRAM)
-	maxRAMGauge.SetRect(16, 25, 31, 45)
+	maxRAMGauge.Height = 10
+	maxRAMGauge.Width = 15
+	maxRAMGauge.X = 0
+	maxRAMGauge.Y = 35
 
-	ramPlot := widgets.NewPlot()
-	ramPlot.Title = fmt.Sprintf("RAM Usage")
-	ramPlot.Data = [][]float64{ramData}
-	ramPlot.Marker = widgets.MarkerDot
-	ramPlot.DotMarkerRune = '•'
-	ramPlot.MaxVal = 100
-	ramPlot.SetRect(32, 25, 182, 45)
-	// ramPlot.SetRect(0, 21, 100, 41)
-	// ramPlot.SetRect(0, 0, 230, 54)
+	ramPlot := termui.NewLineChart()
+	ramPlot.BorderLabel = fmt.Sprintf("RAM Usage")
+	ramPlot.Data = ramData
+	ramPlot.DataLabels = ramLabels
+	ramPlot.Mode = "dot"
+	// ramPlot.DotMarkerRune = '•'
+	ramPlot.LineColor = termui.ColorGreen
+	ramPlot.Height = 20
+	ramPlot.Width = 120
+	ramPlot.X = 15
+	ramPlot.Y = 25
 
 	termui.Clear()
-	// termui.Render(ramPlot)
 	termui.Render(title, cpuGauge, maxCPUGauge, cpuPlot, ramGauge, maxRAMGauge, ramPlot)
 }
 
-func getData(ctx context.Context, prometheusClient monitoring.Metrics, interval time.Duration) (int, int, monitoring.Series, int, int, monitoring.Series, error) {
+func getData(ctx context.Context, prometheusClient monitoring.Metrics, interval time.Duration) (int, int, int, monitoring.Series, int64, int, int, monitoring.Series, error) {
+	totalCPU, err := prometheusClient.GetTotalCPU(ctx)
+	if err != nil {
+		return 0, 0, 0, nil, 0, 0, 9, nil, trace.Wrap(err)
+	}
 	currentCPU, err := prometheusClient.GetCurrentCPURate(ctx)
 	if err != nil {
-		return 0, 0, nil, 0, 0, nil, trace.Wrap(err)
+		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
 	}
 	maxCPU, err := prometheusClient.GetMaxCPURate(ctx, interval)
 	if err != nil {
-		return 0, 0, nil, 0, 0, nil, trace.Wrap(err)
+		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
 	}
 	cpuRate, err := prometheusClient.GetCPURate(ctx, time.Now().Add(-interval), time.Now(), 15*time.Second)
 	if err != nil {
-		return 0, 0, nil, 0, 0, nil, trace.Wrap(err)
+		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
+	}
+	totalRAM, err := prometheusClient.GetTotalMemory(ctx)
+	if err != nil {
+		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
 	}
 	currentRAM, err := prometheusClient.GetCurrentMemoryRate(ctx)
 	if err != nil {
-		return 0, 0, nil, 0, 0, nil, trace.Wrap(err)
+		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
 	}
 	maxRAM, err := prometheusClient.GetMaxMemoryRate(ctx, interval)
 	if err != nil {
-		return 0, 0, nil, 0, 0, nil, trace.Wrap(err)
+		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
 	}
 	ramRate, err := prometheusClient.GetMemoryRate(ctx, time.Now().Add(-interval), time.Now(), 15*time.Second)
 	if err != nil {
-		return 0, 0, nil, 0, 0, nil, trace.Wrap(err)
+		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
 	}
-	return currentCPU, maxCPU, cpuRate, currentRAM, maxRAM, ramRate, nil
+	return totalCPU, currentCPU, maxCPU, cpuRate, totalRAM, currentRAM, maxRAM, ramRate, nil
 }
 
 const prometheusService = "prometheus-k8s.monitoring.svc.cluster.local:9090"
