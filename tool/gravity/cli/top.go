@@ -98,66 +98,74 @@ func draw(totalCPU, currentCPU, maxCPU int, cpuRate monitoring.Series, totalRAM 
 	title.BorderLabel = fmt.Sprintf("Cluster Monitoring - Last Updated: %v",
 		time.Now().Format(constants.HumanDateFormatSeconds))
 	title.Height = 5
-	title.Width = 135
+	title.Width = 230
 
 	cpuGauge := termui.NewGauge()
 	cpuGauge.BorderLabel = "Current CPU"
+	cpuGauge.BorderLabelFg = termui.ColorRed
 	cpuGauge.Percent = currentCPU
 	cpuGauge.BarColor = color(currentCPU)
 	cpuGauge.Height = 10
-	cpuGauge.Width = 15
+	cpuGauge.Width = 30
 	cpuGauge.X = 0
 	cpuGauge.Y = 5
 
 	maxCPUGauge := termui.NewGauge()
 	maxCPUGauge.BorderLabel = "Peak CPU"
+	maxCPUGauge.BorderLabelFg = termui.ColorRed
 	maxCPUGauge.Percent = maxCPU
 	maxCPUGauge.BarColor = color(maxCPU)
 	maxCPUGauge.Height = 10
-	maxCPUGauge.Width = 15
+	maxCPUGauge.Width = 30
 	maxCPUGauge.X = 0
 	maxCPUGauge.Y = 15
 
 	cpuPlot := termui.NewLineChart()
-	cpuPlot.BorderLabel = fmt.Sprintf("CPU Usage")
+	cpuPlot.BorderLabel = fmt.Sprintf("CPU")
+	cpuPlot.BorderLabelFg = termui.ColorRed
 	cpuPlot.Data = cpuData
 	cpuPlot.DataLabels = cpuLabels
 	cpuPlot.Mode = "dot"
 	cpuPlot.LineColor = termui.ColorRed
-	// cpuPlot.DotMarkerRune = '•'
+	// cpuPlot.AxesColor = termui.ColorCyan
+	// cpuPlot.DotStyle = '⦁'
 	cpuPlot.Height = 20
-	cpuPlot.Width = 120
-	cpuPlot.X = 15
+	cpuPlot.Width = 200
+	cpuPlot.X = 30
 	cpuPlot.Y = 5
 
 	ramGauge := termui.NewGauge()
 	ramGauge.BorderLabel = "Current RAM"
+	ramGauge.BorderLabelFg = termui.ColorBlue
 	ramGauge.Percent = currentRAM
 	ramGauge.BarColor = color(currentRAM)
 	ramGauge.Height = 10
-	ramGauge.Width = 15
+	ramGauge.Width = 30
 	ramGauge.X = 0
 	ramGauge.Y = 25
 
 	maxRAMGauge := termui.NewGauge()
 	maxRAMGauge.BorderLabel = "Peak RAM"
+	maxRAMGauge.BorderLabelFg = termui.ColorBlue
 	maxRAMGauge.Percent = maxRAM
 	maxRAMGauge.BarColor = color(maxRAM)
 	maxRAMGauge.Height = 10
-	maxRAMGauge.Width = 15
+	maxRAMGauge.Width = 30
 	maxRAMGauge.X = 0
 	maxRAMGauge.Y = 35
 
 	ramPlot := termui.NewLineChart()
-	ramPlot.BorderLabel = fmt.Sprintf("RAM Usage")
+	ramPlot.BorderLabel = fmt.Sprintf("RAM")
+	ramPlot.BorderLabelFg = termui.ColorBlue
 	ramPlot.Data = ramData
 	ramPlot.DataLabels = ramLabels
 	ramPlot.Mode = "dot"
-	// ramPlot.DotMarkerRune = '•'
-	ramPlot.LineColor = termui.ColorGreen
+	// ramPlot.DotStyle = '⦁'
+	ramPlot.LineColor = termui.ColorBlue
+	// ramPlot.AxesColor = termui.ColorCyan
 	ramPlot.Height = 20
-	ramPlot.Width = 120
-	ramPlot.X = 15
+	ramPlot.Width = 200
+	ramPlot.X = 30
 	ramPlot.Y = 25
 
 	termui.Clear()
