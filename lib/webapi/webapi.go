@@ -248,9 +248,9 @@ func NewAPI(cfg Config) (*Handler, error) {
 	h.POST("/sites", h.needsAuth(h.createSite))
 	h.POST("/sites/:domain/expand", h.needsAuth(h.expandSite))
 	h.POST("/sites/:domain/shrink", h.needsAuth(h.shrinkSite))
-	h.GET("/sites/:domain", h.needsAuth(h.getSite))
 	h.GET("/sites/:domain/info", h.needsAuth(h.getClusterInfo))
 	h.GET("/sites", h.needsAuth(h.getClusters))
+	h.GET("/sites/:domain", h.needsAuth(h.getCluster))
 	h.GET("/sites/:domain/servers", h.needsAuth(h.getServers))
 	h.GET("/sites/:domain/report", h.needsAuth(h.getSiteReport))
 	h.PUT("/sites/:domain", h.needsAuth(h.updateSiteApp))
@@ -1298,33 +1298,32 @@ func (m *Handler) shrinkSite(w http.ResponseWriter, r *http.Request, p httproute
 	return siteShrinkOutput{Operation: *operation}, nil
 }
 
-// getSite retrieves details on the specified site
+// getCluster returns the specified cluster object.
 //
-// GET /portalapi/v1/sites/:domain
-//
-// Input: site_id
+//   GET /portalapi/v1/sites/:domain
 //
 // Output:
-// {
-//   "id": "344238abcd7"
-//   "created": "2016-05-14 13:00:05"
-//   "domain_name": "example.com"
-//   "account_id": "1ab238a8cd5"
-//   "state": "active"
-//   "provisioner": "aws_terraform"
-//   "app": {"package": "gravitational.io/test:1.0.0", "manifest": <...application manifest...>}
-// }
-func (m *Handler) getSite(w http.ResponseWriter, r *http.Request, p httprouter.Params, context *AuthContext) (interface{}, error) {
-	siteDomain := p[0].Value
-	site, err := context.Operator.GetSite(ops.SiteKey{
-		SiteDomain: siteDomain,
-		AccountID:  context.User.GetAccountID(),
-	})
+//
+//   webCluster
+//
+func (m *Handler) getCluster(w http.ResponseWriter, r *http.Request, p httprouter.Params, context *AuthContext) (interface{}, error) {
+	key, err := clusterKey(context, p)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-
-	return site, nil
+	cluster, err := context.Operator.GetSite(*key)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+	releases, err := getReleases(context.Operator, *cluster)
+	if err != nil {
+		m.Errorf("Failed to retrieve releases information for cluster %v: %v.",
+			cluster, trace.DebugReport(err))
+	}
+	return &webCluster{
+		Site:     *cluster,
+		Releases: releases,
+	}, nil
 }
 
 // getApps retrieves the list of site app's packages of all available versions
