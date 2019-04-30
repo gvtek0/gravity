@@ -180,9 +180,6 @@ const (
 	// LocalGravityDir is the path to local gravity package state
 	LocalGravityDir = "/var/lib/gravity/local"
 
-	// SiteGravityDir is where local gravity site stores all its data
-	SiteGravityDir = "/var/lib/gravity/site"
-
 	// GravityDir is where all root state of Gravity is stored
 	GravityDir = "/var/lib/gravity"
 
@@ -379,9 +376,6 @@ const (
 
 	// ImportDir is the place for app import state
 	ImportDir = "import"
-
-	// TempDir is the place for temp files and folders
-	TempDir = "tmp"
 
 	// ResourcesDir is the name of the directory where apps store their resources such as app manifest
 	ResourcesDir = "resources"
@@ -1186,7 +1180,7 @@ func InSystemUnitDir(serviceName string) string {
 
 // InTempDir returns the specified subpath inside default tmp directory
 func InTempDir(path ...string) string {
-	return filepath.Join(append([]string{"/tmp"}, path...)...)
+	return filepath.Join(append([]string{os.TempDir()}, path...)...)
 }
 
 // GravityRPCAgentAddr returns default RPC agent advertise address
@@ -1207,6 +1201,12 @@ func InstallerAddr(installerIP string) (addr string) {
 // GravityInstallDir is where install FSM stores its information during install/join operation.
 // elems are appended to resulting path if not empty
 func GravityInstallDir(elems ...string) (path string) {
-	parts := []string{os.TempDir(), WizardStateDir}
+	parts := []string{GravityEphemeralDir, "install"}
+	return filepath.Join(append(parts, elems...)...)
+}
+
+// GravityJoinDir returns the state directory path for a join operation
+func GravityJoinDir(elems ...string) (path string) {
+	parts := []string{GravityEphemeralDir, "join"}
 	return filepath.Join(append(parts, elems...)...)
 }
