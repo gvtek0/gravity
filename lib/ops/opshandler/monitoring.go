@@ -45,10 +45,14 @@ func (h *WebHandler) getClusterMetrics(w http.ResponseWriter, r *http.Request, p
 	if err != nil {
 		return trace.Wrap(err)
 	}
-	var interval time.Duration
+	var interval, step time.Duration
 	if i := r.Form.Get("interval"); i != "" {
-		interval, err = time.ParseDuration(i)
-		if err != nil {
+		if interval, err = time.ParseDuration(i); err != nil {
+			return trace.Wrap(err)
+		}
+	}
+	if s := r.Form.Get("step"); s != "" {
+		if step, err = time.ParseDuration(s); err != nil {
 			return trace.Wrap(err)
 		}
 	}
@@ -56,6 +60,7 @@ func (h *WebHandler) getClusterMetrics(w http.ResponseWriter, r *http.Request, p
 		ops.ClusterMetricsRequest{
 			SiteKey:  siteKey(p),
 			Interval: interval,
+			Step:     step,
 		})
 	if err != nil {
 		return trace.Wrap(err)

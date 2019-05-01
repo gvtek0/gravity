@@ -1657,6 +1657,8 @@ type ResourceGetCmd struct {
 //
 type TopCmd struct {
 	*kingpin.CmdClause
-	//
+	// Interval is the interval to display metrics for.
 	Interval *time.Duration
+	// Step is the max time b/w two datapoints.
+	Step *time.Duration
 }

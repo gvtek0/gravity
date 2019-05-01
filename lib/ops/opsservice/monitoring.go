@@ -37,39 +37,44 @@ import (
 
 // GetClusterMetrics returns basic CPU/RAM metrics for the specified cluster.
 func (o *Operator) GetClusterMetrics(ctx context.Context, req ops.ClusterMetricsRequest) (*ops.ClusterMetricsResponse, error) {
+	return GetClusterMetrics(ctx, o.cfg.Metrics, req)
+}
+
+// GetClusterMetrics retrieves all cluster metrics from the provided client.
+func GetClusterMetrics(ctx context.Context, metrics monitoring.Metrics, req ops.ClusterMetricsRequest) (*ops.ClusterMetricsResponse, error) {
 	err := req.CheckAndSetDefaults()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	totalCPUCores, err := o.cfg.Metrics.GetTotalCPU(ctx)
+	totalCPUCores, err := metrics.GetTotalCPU(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	currentCPURate, err := o.cfg.Metrics.GetCurrentCPURate(ctx)
+	currentCPURate, err := metrics.GetCurrentCPURate(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	maxCPURate, err := o.cfg.Metrics.GetMaxCPURate(ctx, req.Interval)
+	maxCPURate, err := metrics.GetMaxCPURate(ctx, req.Interval)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	historicCPURate, err := o.cfg.Metrics.GetCPURate(ctx, time.Now().Add(-req.Interval), time.Now(), 15*time.Second)
+	historicCPURate, err := metrics.GetCPURate(ctx, time.Now().Add(-req.Interval), time.Now(), req.Step)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	totalRAMBytes, err := o.cfg.Metrics.GetTotalMemory(ctx)
+	totalRAMBytes, err := metrics.GetTotalMemory(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	currentRAMRate, err := o.cfg.Metrics.GetCurrentMemoryRate(ctx)
+	currentRAMRate, err := metrics.GetCurrentMemoryRate(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	maxRAMRate, err := o.cfg.Metrics.GetMaxMemoryRate(ctx, req.Interval)
+	maxRAMRate, err := metrics.GetMaxMemoryRate(ctx, req.Interval)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	historicRAMRate, err := o.cfg.Metrics.GetMemoryRate(ctx, time.Now().Add(-req.Interval), time.Now(), 15*time.Second)
+	historicRAMRate, err := metrics.GetMemoryRate(ctx, time.Now().Add(-req.Interval), time.Now(), req.Step)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

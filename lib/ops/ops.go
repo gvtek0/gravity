@@ -1889,6 +1889,8 @@ type ClusterMetricsRequest struct {
 	SiteKey
 	// Interval is the requested metrics interval.
 	Interval time.Duration `json:"interval"`
+	// Step is the optional maximum time b/w two datapoints.
+	Step time.Duration `json:"step"`
 }
 
 // CheckAndSetDefaults validates the request and fills in defaults.
@@ -1897,7 +1899,10 @@ func (r *ClusterMetricsRequest) CheckAndSetDefaults() error {
 		return trace.Wrap(err)
 	}
 	if r.Interval == 0 {
-		r.Interval = time.Hour
+		r.Interval = defaults.MetricsInterval
+	}
+	if r.Step == 0 {
+		r.Step = defaults.MetricsStep
 	}
 	return nil
 }

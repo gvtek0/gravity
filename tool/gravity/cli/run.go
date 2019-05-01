@@ -866,7 +866,8 @@ func Execute(g *Application, cmd string, extraArgs []string) error {
 			*g.CheckCmd.AutoFix)
 	case g.TopCmd.FullCommand():
 		return top(localEnv,
-			*g.TopCmd.Interval)
+			*g.TopCmd.Interval,
+			*g.TopCmd.Step)
 	}
 	return trace.NotFound("unknown command %v", cmd)
 }

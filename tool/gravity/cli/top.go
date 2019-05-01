@@ -5,50 +5,39 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/gravitational/gravity/lib/constants"
+	"github.com/gravitational/gravity/lib/defaults"
 	"github.com/gravitational/gravity/lib/localenv"
+	"github.com/gravitational/gravity/lib/ops"
 	"github.com/gravitational/gravity/lib/ops/monitoring"
+	"github.com/gravitational/gravity/lib/ops/opsservice"
+	"github.com/gravitational/gravity/lib/utils"
 
+	"github.com/buger/goterm"
+	"github.com/dustin/go-humanize"
 	"github.com/gizak/termui"
 	"github.com/gravitational/trace"
 )
 
-func top(env *localenv.LocalEnvironment, interval time.Duration) error {
-	// prometheusAddr, err := utils.ResolveAddr(env.DNS.Addr(), prometheusService)
-	// if err != nil {
-	// 	return trace.Wrap(err)
-	// }
-	prometheusAddr := "192.168.121.97:30198"
+func top(env *localenv.LocalEnvironment, interval, step time.Duration) error {
+	prometheusAddr, err := utils.ResolveAddr(env.DNS.Addr(), fmt.Sprintf("%v:%v",
+		defaults.PrometheusServiceAddr, defaults.PrometheusServicePort))
+	if err != nil {
+		return trace.Wrap(err)
+	}
+
 	prometheusClient, err := monitoring.NewPrometheus(prometheusAddr)
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	if err := termui.Init(); err != nil {
+	err = termui.Init()
+	if err != nil {
 		return trace.Wrap(err)
 	}
 	defer termui.Close()
 
-	// uiEvents := termui.PollEvents()
-
-	go func() {
-		for {
-			select {
-			case <-time.After(2 * time.Second):
-				totalCPU, currentCPU, maxCPU, cpuRate, totalRAM, currentRAM, maxRAM, ramRate, err := getData(context.TODO(), prometheusClient, interval)
-				if err != nil {
-					continue
-				}
-				draw(totalCPU, currentCPU, maxCPU, cpuRate, totalRAM, currentRAM, maxRAM, ramRate)
-				// case e := <-uiEvents:
-				// 	switch e.ID {
-				// 	case "q", "<C-c>":
-				// 		return nil
-				// 	}
-			}
-		}
-	}()
+	go render(env, context.TODO(), prometheusClient, interval, step)
 
 	termui.Handle("/sys/kbd/q", func(termui.Event) {
 		termui.StopLoop()
@@ -58,154 +47,225 @@ func top(env *localenv.LocalEnvironment, interval time.Duration) error {
 	return nil
 }
 
-// func draw2(currentCPU, maxCPU int, cpuRate monitoring.Series, currentRAM, maxRAM int, ramRate monitoring.Series) {
-// 	chart := goterm.NewLineChart()
-// }
+// render continuously spins in a loop retrieving cluster metrics and rendering
+// terminal widgets at a certain interval.
+func render(env *localenv.LocalEnvironment, ctx context.Context, client monitoring.Metrics, interval, step time.Duration) {
+	ticker := time.NewTicker(refreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			cluster, err := env.LocalCluster()
+			if err != nil {
+				log.Errorf(trace.DebugReport(err))
+				continue
+			}
+			metrics, err := opsservice.GetClusterMetrics(ctx, client, ops.ClusterMetricsRequest{
+				SiteKey:  cluster.Key(),
+				Interval: interval,
+				Step:     step,
+			})
+			if err != nil {
+				log.Errorf(trace.DebugReport(err))
+				continue
+			}
+			reRender(*cluster, *metrics)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
 
-func draw(totalCPU, currentCPU, maxCPU int, cpuRate monitoring.Series, totalRAM int64, currentRAM, maxRAM int, ramRate monitoring.Series) {
+// reRender renders terminal widgets for the provided metrics data.
+func reRender(cluster ops.Site, metrics ops.ClusterMetricsResponse) {
 	var cpuData []float64
 	var cpuLabels []string
-	for _, point := range cpuRate {
+	for _, point := range metrics.CPURates.Historic {
 		cpuData = append(cpuData, float64(point.Value))
-		cpuLabels = append(cpuLabels, point.Time.Format("15:04"))
+		cpuLabels = append(cpuLabels, point.Time.Format(constants.TimeFormat))
 	}
-	// if len(cpuData) > 140 {
-	// 	cpuData = cpuData[len(cpuData)-140:]
-	// }
 
 	var ramData []float64
 	var ramLabels []string
-	for _, point := range ramRate {
+	for _, point := range metrics.MemoryRates.Historic {
 		ramData = append(ramData, float64(point.Value))
-		ramLabels = append(ramLabels, point.Time.Format("15:04"))
-	}
-	// if len(ramData) > 140 {
-	// 	ramData = ramData[len(ramData)-140:]
-	// }
-
-	color := func(percent int) termui.Attribute {
-		if percent <= 25 {
-			return termui.ColorGreen
-		} else if percent > 75 {
-			return termui.ColorRed
-		} else {
-			return termui.ColorYellow
-		}
+		ramLabels = append(ramLabels, point.Time.Format(constants.TimeFormat))
 	}
 
-	title := termui.NewPar(fmt.Sprintf("Total Nodes: %v\nTotal CPU Cores: %v\nTotal Memory: %v",
-		1, totalCPU, humanize.Bytes(uint64(totalRAM))))
-	title.BorderLabel = fmt.Sprintf("Cluster Monitoring - Last Updated: %v",
-		time.Now().Format(constants.HumanDateFormatSeconds))
-	title.Height = 5
-	title.Width = 230
+	dim := getDimensions()
 
-	cpuGauge := termui.NewGauge()
-	cpuGauge.BorderLabel = "Current CPU"
-	cpuGauge.BorderLabelFg = termui.ColorRed
-	cpuGauge.Percent = currentCPU
-	cpuGauge.BarColor = color(currentCPU)
-	cpuGauge.Height = 10
-	cpuGauge.Width = 30
-	cpuGauge.X = 0
-	cpuGauge.Y = 5
-
-	maxCPUGauge := termui.NewGauge()
-	maxCPUGauge.BorderLabel = "Peak CPU"
-	maxCPUGauge.BorderLabelFg = termui.ColorRed
-	maxCPUGauge.Percent = maxCPU
-	maxCPUGauge.BarColor = color(maxCPU)
-	maxCPUGauge.Height = 10
-	maxCPUGauge.Width = 30
-	maxCPUGauge.X = 0
-	maxCPUGauge.Y = 15
-
-	cpuPlot := termui.NewLineChart()
-	cpuPlot.BorderLabel = fmt.Sprintf("CPU")
-	cpuPlot.BorderLabelFg = termui.ColorRed
-	cpuPlot.Data = cpuData
-	cpuPlot.DataLabels = cpuLabels
-	cpuPlot.Mode = "dot"
-	cpuPlot.LineColor = termui.ColorRed
-	// cpuPlot.AxesColor = termui.ColorCyan
-	// cpuPlot.DotStyle = '⦁'
-	cpuPlot.Height = 20
-	cpuPlot.Width = 200
-	cpuPlot.X = 30
-	cpuPlot.Y = 5
-
-	ramGauge := termui.NewGauge()
-	ramGauge.BorderLabel = "Current RAM"
-	ramGauge.BorderLabelFg = termui.ColorBlue
-	ramGauge.Percent = currentRAM
-	ramGauge.BarColor = color(currentRAM)
-	ramGauge.Height = 10
-	ramGauge.Width = 30
-	ramGauge.X = 0
-	ramGauge.Y = 25
-
-	maxRAMGauge := termui.NewGauge()
-	maxRAMGauge.BorderLabel = "Peak RAM"
-	maxRAMGauge.BorderLabelFg = termui.ColorBlue
-	maxRAMGauge.Percent = maxRAM
-	maxRAMGauge.BarColor = color(maxRAM)
-	maxRAMGauge.Height = 10
-	maxRAMGauge.Width = 30
-	maxRAMGauge.X = 0
-	maxRAMGauge.Y = 35
-
-	ramPlot := termui.NewLineChart()
-	ramPlot.BorderLabel = fmt.Sprintf("RAM")
-	ramPlot.BorderLabelFg = termui.ColorBlue
-	ramPlot.Data = ramData
-	ramPlot.DataLabels = ramLabels
-	ramPlot.Mode = "dot"
-	// ramPlot.DotStyle = '⦁'
-	ramPlot.LineColor = termui.ColorBlue
-	// ramPlot.AxesColor = termui.ColorCyan
-	ramPlot.Height = 20
-	ramPlot.Width = 200
-	ramPlot.X = 30
-	ramPlot.Y = 25
+	widgets := []termui.Bufferer{
+		getTitle(titleParams{
+			Title: fmt.Sprintf("Totals / Last Updated: %v",
+				time.Now().Format(constants.HumanDateFormatSeconds)),
+			Text: fmt.Sprintf("Nodes: %v\tCPU Cores: %v\tMemory: %v",
+				len(cluster.ClusterState.Servers),
+				metrics.TotalCPUCores,
+				humanize.Bytes(uint64(metrics.TotalMemoryBytes))),
+			H: dim.TitleH,
+			W: dim.TitleW,
+			X: 0,
+			Y: 0,
+		}),
+		getGauge(gaugeParams{
+			Title:   "Current CPU",
+			Percent: metrics.CPURates.Current,
+			H:       dim.GaugeH,
+			W:       dim.GaugeW,
+			X:       0,
+			Y:       dim.TitleH,
+		}),
+		getGauge(gaugeParams{
+			Title:   "Peak CPU",
+			Percent: metrics.CPURates.Max,
+			H:       dim.GaugeH,
+			W:       dim.GaugeW,
+			X:       0,
+			Y:       dim.TitleH + dim.GaugeH,
+		}),
+		getChart(chartParams{
+			Title:  "CPU",
+			Data:   cpuData,
+			Labels: cpuLabels,
+			H:      dim.ChartH,
+			W:      dim.ChartW,
+			X:      dim.GaugeW,
+			Y:      dim.TitleH,
+		}),
+		getGauge(gaugeParams{
+			Title:   "Current RAM",
+			Percent: metrics.MemoryRates.Current,
+			H:       dim.GaugeH,
+			W:       dim.GaugeW,
+			X:       0,
+			Y:       dim.TitleH + 2*dim.GaugeH,
+		}),
+		getGauge(gaugeParams{
+			Title:   "Peak RAM",
+			Percent: metrics.MemoryRates.Max,
+			H:       dim.GaugeH,
+			W:       dim.GaugeW,
+			X:       0,
+			Y:       dim.TitleH + 3*dim.GaugeH,
+		}),
+		getChart(chartParams{
+			Title:  "RAM",
+			Data:   ramData,
+			Labels: ramLabels,
+			H:      dim.ChartH,
+			W:      dim.ChartW,
+			X:      dim.GaugeW,
+			Y:      dim.TitleH + 2*dim.GaugeH,
+		}),
+	}
 
 	termui.Clear()
-	termui.Render(title, cpuGauge, maxCPUGauge, cpuPlot, ramGauge, maxRAMGauge, ramPlot)
+	termui.Render(widgets...)
 }
 
-func getData(ctx context.Context, prometheusClient monitoring.Metrics, interval time.Duration) (int, int, int, monitoring.Series, int64, int, int, monitoring.Series, error) {
-	totalCPU, err := prometheusClient.GetTotalCPU(ctx)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 9, nil, trace.Wrap(err)
-	}
-	currentCPU, err := prometheusClient.GetCurrentCPURate(ctx)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
-	}
-	maxCPU, err := prometheusClient.GetMaxCPURate(ctx, interval)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
-	}
-	cpuRate, err := prometheusClient.GetCPURate(ctx, time.Now().Add(-interval), time.Now(), 15*time.Second)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
-	}
-	totalRAM, err := prometheusClient.GetTotalMemory(ctx)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
-	}
-	currentRAM, err := prometheusClient.GetCurrentMemoryRate(ctx)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
-	}
-	maxRAM, err := prometheusClient.GetMaxMemoryRate(ctx, interval)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
-	}
-	ramRate, err := prometheusClient.GetMemoryRate(ctx, time.Now().Add(-interval), time.Now(), 15*time.Second)
-	if err != nil {
-		return 0, 0, 0, nil, 0, 0, 0, nil, trace.Wrap(err)
-	}
-	return totalCPU, currentCPU, maxCPU, cpuRate, totalRAM, currentRAM, maxRAM, ramRate, nil
+type titleParams struct {
+	Title string
+	Text  string
+	H, W  int
+	X, Y  int
 }
 
-const prometheusService = "prometheus-k8s.monitoring.svc.cluster.local:9090"
+// getTitle returns title widget with specified parameters.
+func getTitle(p titleParams) *termui.Par {
+	title := termui.NewPar(p.Text)
+	title.BorderLabel = p.Title
+	title.Height = p.H
+	title.Width = p.W
+	title.X = p.X
+	title.Y = p.Y
+	return title
+}
+
+type gaugeParams struct {
+	Title   string
+	Percent int
+	H, W    int
+	X, Y    int
+}
+
+// getGauge returns gauge widget with specified parameters.
+func getGauge(p gaugeParams) *termui.Gauge {
+	gauge := termui.NewGauge()
+	gauge.BorderLabel = p.Title
+	gauge.Percent = p.Percent
+	gauge.BarColor = getColor(p.Percent)
+	gauge.Height = p.H
+	gauge.Width = p.W
+	gauge.X = p.X
+	gauge.Y = p.Y
+	return gauge
+}
+
+type chartParams struct {
+	Title  string
+	Data   []float64
+	Labels []string
+	H, W   int
+	X, Y   int
+}
+
+// getChart returns line chart widget with specified parameters.
+func getChart(p chartParams) *termui.LineChart {
+	chart := termui.NewLineChart()
+	chart.BorderLabel = p.Title
+	chart.Data = p.Data
+	chart.DataLabels = p.Labels
+	chart.Mode = "dot"
+	chart.Height = p.H
+	chart.Width = p.W
+	chart.X = p.X
+	chart.Y = p.Y
+	return chart
+}
+
+// Dimensions contains dimentions (height/width) for terminal widgets.
+type Dimensions struct {
+	TitleH, TitleW int
+	GaugeH, GaugeW int
+	ChartH, ChartW int
+}
+
+// getDimensions returns terminal widget dimensions based on the terminal size.
+func getDimensions() Dimensions {
+	termH := goterm.Height()
+	termW := goterm.Width()
+
+	// Let the title widget occupy 10% of terminal height.
+	titleH := termH / 10
+	titleW := termW
+
+	// We currently have 4 gauges one under another.
+	gaugeH := (termH - titleH) / 4
+	gaugeW := termW / 5
+
+	// We currently have 2 charts one under another next to the gauges.
+	chartH := 2 * gaugeH
+	chartW := termW - gaugeW
+
+	return Dimensions{
+		TitleH: titleH,
+		TitleW: titleW,
+		GaugeH: gaugeH,
+		GaugeW: gaugeW,
+		ChartH: chartH,
+		ChartW: chartW,
+	}
+}
+
+// getColor returns appropriate color based on percent value.
+func getColor(percent int) termui.Attribute {
+	if percent <= 25 {
+		return termui.ColorGreen
+	} else if percent > 75 {
+		return termui.ColorRed
+	}
+	return termui.ColorYellow
+}
+
+// refreshInterval is how often terminal widges are refreshed.
+const refreshInterval = 2 * time.Second

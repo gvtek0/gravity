@@ -730,8 +730,9 @@ func RegisterCommands(app *kingpin.Application) *Application {
 	g.ResourceGetCmd.WithSecrets = g.ResourceGetCmd.Flag("with-secrets", "include secret properties like private keys").Default("false").Bool()
 	g.ResourceGetCmd.User = g.ResourceGetCmd.Flag("user", "user to display resources for, defaults to currently logged in user").String()
 
-	g.TopCmd.CmdClause = g.Command("top", "Gravity top")
-	g.TopCmd.Interval = g.TopCmd.Flag("interval", "Interval").Default("1h").Duration()
+	g.TopCmd.CmdClause = g.Command("top", "Display cluster monitoring information")
+	g.TopCmd.Interval = g.TopCmd.Flag("interval", "Interval to display data for, in Go duration format").Default(defaults.MetricsInterval.String()).Duration()
+	g.TopCmd.Step = g.TopCmd.Flag("step", "Max time b/w two datapoints, in Go duration format").Default(defaults.MetricsStep.String()).Duration()
 
 	return g
 }

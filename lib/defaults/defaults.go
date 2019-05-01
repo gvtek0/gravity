@@ -1138,6 +1138,11 @@ var (
 		"hmac-sha2-256-etm@openssh.com",
 		"hmac-sha2-256",
 	}
+
+	// MetricsInterval is the default interval cluster metrics are displayed for.
+	MetricsInterval = time.Hour
+	// MetricsStep is the default interval b/w cluster metrics data points.
+	MetricsStep = 15 * time.Second
 )
 
 // HookSecurityContext returns default securityContext for hook pods

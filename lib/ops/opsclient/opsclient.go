@@ -993,6 +993,7 @@ func (c *Client) GetClusterMetrics(ctx context.Context, req ops.ClusterMetricsRe
 	response, err := c.Get(c.Endpoint("accounts", req.AccountID, "sites",
 		req.SiteDomain, "monitoring", "metrics"), url.Values{
 		"interval": []string{req.Interval.String()},
+		"step":     []string{req.Step.String()},
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
