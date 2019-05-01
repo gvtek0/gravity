@@ -311,7 +311,7 @@ type Application struct {
 	ResourceRemoveCmd ResourceRemoveCmd
 	// ResourceGetCmd shows specified resource
 	ResourceGetCmd ResourceGetCmd
-	//
+	// TopCmd displays cluster metrics in terminal
 	TopCmd TopCmd
 }
 
@@ -1654,7 +1654,7 @@ type ResourceGetCmd struct {
 	User *string
 }
 
-//
+// TopCmd displays cluster metrics in terminal.
 type TopCmd struct {
 	*kingpin.CmdClause
 	// Interval is the interval to display metrics for.

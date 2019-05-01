@@ -207,6 +207,10 @@ func (p *prometheus) GetMaxMemoryRate(ctx context.Context, interval time.Duratio
 	return int(vector[0].Value), nil
 }
 
+// getVector executes the provided Prometheus query and returns the resulting
+// "instant vector":
+//
+// https://prometheus.io/docs/prometheus/latest/querying/basics/#instant-vector-selectors
 func (p *prometheus) getVector(ctx context.Context, query string) (model.Vector, error) {
 	value, err := p.Query(ctx, query, time.Time{})
 	if err != nil {
@@ -218,6 +222,10 @@ func (p *prometheus) getVector(ctx context.Context, query string) (model.Vector,
 	return value.(model.Vector), nil
 }
 
+// getMatrix issues the provided Prometheus ranged query and returns the
+// resulting "range vector":
+//
+// https://prometheus.io/docs/prometheus/latest/querying/basics/#range-vector-selectors
 func (p *prometheus) getMatrix(ctx context.Context, query string, start, end time.Time, step time.Duration) (model.Matrix, error) {
 	value, err := p.QueryRange(ctx, query, v1.Range{
 		Start: start,
@@ -234,10 +242,24 @@ func (p *prometheus) getMatrix(ctx context.Context, query string, start, end tim
 }
 
 var (
-	queryTotalCPU    = "cluster:cpu_total"
+	// queryTotalCPU is the Prometheus query that returns total number
+	// of CPU cores in the cluster.
+	queryTotalCPU = "cluster:cpu_total"
+	// queryTotalMemory is the Prometheus query that returns total amount
+	// of memory in the cluster in bytes.
 	queryTotalMemory = "cluster:memory_total_bytes"
-	queryCPURate     = "cluster:cpu_usage_rate"
-	queryMemoryRate  = "cluster:memory_usage_rate"
-	queryMaxCPU      = template.Must(template.New("").Parse("max_over_time(cluster:cpu_usage_rate[{{.interval}}])"))
-	queryMaxMemory   = template.Must(template.New("").Parse("max_over_time(cluster:memory_usage_rate[{{.interval}}])"))
+	// queryCPURate is the Prometheus query that returns CPU usage rate
+	// in percent values.
+	queryCPURate = "cluster:cpu_usage_rate"
+	// queryMemoryRate is the Prometheus query that returns memory usage
+	// rate in percent values.
+	queryMemoryRate = "cluster:memory_usage_rate"
+	// queryMaxCPU is the Prometheus query template that returns peak CPU
+	// usage rate percent value on a certain interval.
+	queryMaxCPU = template.Must(template.New("").Parse(
+		"max_over_time(cluster:cpu_usage_rate[{{.interval}}])"))
+	// queryMaxMemory is the Prometheus query template that returns peak
+	// memory usage rate percent value on a certain interval.
+	queryMaxMemory = template.Must(template.New("").Parse(
+		"max_over_time(cluster:memory_usage_rate[{{.interval}}])"))
 )
